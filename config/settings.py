@@ -2,7 +2,6 @@
 
 import os
 from collections.abc import Mapping
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -477,7 +476,10 @@ class Settings(BaseSettings):
     )
 
 
-@lru_cache
 def get_settings() -> Settings:
-    """Get cached settings instance."""
+    """Build a settings instance.
+
+    Prefer app-owned settings in runtime code. This helper remains for scripts,
+    smoke utilities, and direct configuration tests.
+    """
     return Settings()

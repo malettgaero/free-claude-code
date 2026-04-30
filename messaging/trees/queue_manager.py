@@ -5,7 +5,6 @@ from collections.abc import Awaitable, Callable
 
 from loguru import logger
 
-from config.settings import get_settings
 from core.anthropic import get_user_facing_error_message
 
 from ..models import IncomingMessage
@@ -193,9 +192,12 @@ class TreeQueueProcessor:
         queue_update_callback: Callable[[MessageTree], Awaitable[None]] | None = None,
         node_started_callback: Callable[[MessageTree, str], Awaitable[None]]
         | None = None,
+        *,
+        log_messaging_error_details: bool = False,
     ) -> None:
         self._queue_update_callback = queue_update_callback
         self._node_started_callback = node_started_callback
+        self._log_messaging_error_details = log_messaging_error_details
 
     def set_queue_update_callback(
         self,
@@ -218,10 +220,11 @@ class TreeQueueProcessor:
         try:
             await self._queue_update_callback(tree)
         except Exception as e:
-            d = get_settings().log_messaging_error_details
             logger.warning(
                 "Queue update callback failed: {}",
-                format_exception_for_log(e, log_full_message=d),
+                format_exception_for_log(
+                    e, log_full_message=self._log_messaging_error_details
+                ),
             )
 
     async def _notify_node_started(self, tree: MessageTree, node_id: str) -> None:
@@ -231,10 +234,11 @@ class TreeQueueProcessor:
         try:
             await self._node_started_callback(tree, node_id)
         except Exception as e:
-            d = get_settings().log_messaging_error_details
             logger.warning(
                 "Node started callback failed: {}",
-                format_exception_for_log(e, log_full_message=d),
+                format_exception_for_log(
+                    e, log_full_message=self._log_messaging_error_details
+                ),
             )
 
     async def process_node(
@@ -257,11 +261,12 @@ class TreeQueueProcessor:
             logger.info(f"Task for node {node.node_id} was cancelled")
             raise
         except Exception as e:
-            d = get_settings().log_messaging_error_details
             logger.error(
                 "Error processing node {}: {}",
                 node.node_id,
-                format_exception_for_log(e, log_full_message=d),
+                format_exception_for_log(
+                    e, log_full_message=self._log_messaging_error_details
+                ),
             )
             await tree.update_state(
                 node.node_id,
@@ -348,11 +353,13 @@ class TreeQueueManager:
         node_started_callback: Callable[[MessageTree, str], Awaitable[None]]
         | None = None,
         _repository: TreeRepository | None = None,
+        log_messaging_error_details: bool = False,
     ) -> None:
         self._repository = _repository or TreeRepository()
         self._processor = TreeQueueProcessor(
             queue_update_callback=queue_update_callback,
             node_started_callback=node_started_callback,
+            log_messaging_error_details=log_messaging_error_details,
         )
         self._lock = asyncio.Lock()
 
@@ -733,12 +740,14 @@ class TreeQueueManager:
         queue_update_callback: Callable[[MessageTree], Awaitable[None]] | None = None,
         node_started_callback: Callable[[MessageTree, str], Awaitable[None]]
         | None = None,
+        log_messaging_error_details: bool = False,
     ) -> TreeQueueManager:
         """Deserialize from dictionary."""
         return cls(
             queue_update_callback=queue_update_callback,
             node_started_callback=node_started_callback,
             _repository=TreeRepository.from_dict(data),
+            log_messaging_error_details=log_messaging_error_details,
         )
 
 

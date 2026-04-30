@@ -23,6 +23,7 @@ _RUNTIME_EXTRAS = {
     "debug_platform_edits": False,
     "debug_subagent_stack": False,
     "log_api_error_tracebacks": False,
+    "log_raw_api_payloads": False,
     "log_raw_messaging_content": False,
     "log_raw_cli_diagnostics": False,
     "log_messaging_error_details": False,
@@ -64,13 +65,6 @@ def test_create_app_provider_error_handler_returns_anthropic_format():
     from api.app import create_app
     from providers.exceptions import AuthenticationError
 
-    app = create_app()
-
-    @app.get("/raise_provider")
-    async def _raise_provider():
-        raise AuthenticationError("bad key")
-
-    api_app_mod = importlib.import_module("api.app")
     settings = _app_settings(
         messaging_platform="telegram",
         telegram_bot_token=None,
@@ -83,8 +77,13 @@ def test_create_app_provider_error_handler_returns_anthropic_format():
         port=8082,
         log_file="server.log",
     )
+    app = create_app(settings=cast(Settings, settings))
+
+    @app.get("/raise_provider")
+    async def _raise_provider():
+        raise AuthenticationError("bad key")
+
     with (
-        patch.object(api_app_mod, "get_settings", return_value=settings),
         patch.object(ProviderRegistry, "cleanup", new=AsyncMock()),
     ):
         with TestClient(app) as client:
@@ -100,14 +99,7 @@ def test_create_app_provider_error_default_logs_exclude_provider_message():
     from api.app import create_app
     from providers.exceptions import AuthenticationError
 
-    app = create_app()
     secret = "provider-upstream-secret-detail"
-
-    @app.get("/raise_provider_secret")
-    async def _raise():
-        raise AuthenticationError(secret)
-
-    api_app_mod = importlib.import_module("api.app")
     settings = _app_settings(
         messaging_platform="telegram",
         telegram_bot_token=None,
@@ -121,8 +113,14 @@ def test_create_app_provider_error_default_logs_exclude_provider_message():
         log_file="server.log",
         log_api_error_tracebacks=False,
     )
+    app = create_app(settings=cast(Settings, settings))
+
+    @app.get("/raise_provider_secret")
+    async def _raise():
+        raise AuthenticationError(secret)
+
+    api_app_mod = importlib.import_module("api.app")
     with (
-        patch.object(api_app_mod, "get_settings", return_value=settings),
         patch.object(ProviderRegistry, "cleanup", new=AsyncMock()),
         patch.object(api_app_mod.logger, "error") as log_err,
     ):
@@ -139,13 +137,6 @@ def test_create_app_provider_error_default_logs_exclude_provider_message():
 def test_create_app_general_exception_handler_returns_500():
     from api.app import create_app
 
-    app = create_app()
-
-    @app.get("/raise_general")
-    async def _raise_general():
-        raise RuntimeError("boom")
-
-    api_app_mod = importlib.import_module("api.app")
     settings = _app_settings(
         messaging_platform="telegram",
         telegram_bot_token=None,
@@ -158,8 +149,13 @@ def test_create_app_general_exception_handler_returns_500():
         port=8082,
         log_file="server.log",
     )
+    app = create_app(settings=cast(Settings, settings))
+
+    @app.get("/raise_general")
+    async def _raise_general():
+        raise RuntimeError("boom")
+
     with (
-        patch.object(api_app_mod, "get_settings", return_value=settings),
         patch.object(ProviderRegistry, "cleanup", new=AsyncMock()),
     ):
         with TestClient(app, raise_server_exceptions=False) as client:
@@ -174,15 +170,7 @@ def test_create_app_general_exception_default_logs_exclude_exception_message():
     """Unhandled errors must not log exception text by default (may echo user content)."""
     from api.app import create_app
 
-    app = create_app()
-
     secret = "user-provided-secret-token-xyzzy"
-
-    @app.get("/raise_secret")
-    async def _raise_secret():
-        raise ValueError(secret)
-
-    api_app_mod = importlib.import_module("api.app")
     settings = _app_settings(
         messaging_platform="telegram",
         telegram_bot_token=None,
@@ -196,8 +184,14 @@ def test_create_app_general_exception_default_logs_exclude_exception_message():
         log_file="server.log",
         log_api_error_tracebacks=False,
     )
+    app = create_app(settings=cast(Settings, settings))
+
+    @app.get("/raise_secret")
+    async def _raise_secret():
+        raise ValueError(secret)
+
+    api_app_mod = importlib.import_module("api.app")
     with (
-        patch.object(api_app_mod, "get_settings", return_value=settings),
         patch.object(ProviderRegistry, "cleanup", new=AsyncMock()),
         patch.object(api_app_mod.logger, "error") as log_err,
     ):
@@ -220,8 +214,6 @@ def test_create_app_general_exception_default_logs_exclude_exception_message():
 def test_app_lifespan_sets_state_and_cleans_up(tmp_path, messaging_enabled):
     from api.app import create_app
 
-    app = create_app()
-
     settings = _app_settings(
         messaging_platform="telegram",
         telegram_bot_token="token" if messaging_enabled else None,
@@ -234,6 +226,7 @@ def test_app_lifespan_sets_state_and_cleans_up(tmp_path, messaging_enabled):
         port=8082,
         log_file=str(tmp_path / "server.log"),
     )
+    app = create_app(settings=cast(Settings, settings))
 
     fake_platform = MagicMock()
     fake_platform.name = "fake"
@@ -256,11 +249,8 @@ def test_app_lifespan_sets_state_and_cleans_up(tmp_path, messaging_enabled):
     cli_manager = MagicMock()
     cli_manager.stop_all = AsyncMock()
 
-    api_app_mod = importlib.import_module("api.app")
-
     registry_cleanup = AsyncMock()
     with (
-        patch.object(api_app_mod, "get_settings", return_value=settings),
         patch.object(ProviderRegistry, "cleanup", new=registry_cleanup),
         patch(
             "messaging.platforms.factory.create_messaging_platform",
@@ -299,8 +289,6 @@ def test_app_lifespan_sets_state_and_cleans_up(tmp_path, messaging_enabled):
 def test_app_lifespan_cleanup_continues_if_platform_stop_raises(tmp_path):
     from api.app import create_app
 
-    app = create_app()
-
     settings = _app_settings(
         messaging_platform="telegram",
         telegram_bot_token="token",
@@ -313,6 +301,7 @@ def test_app_lifespan_cleanup_continues_if_platform_stop_raises(tmp_path):
         port=8082,
         log_file=str(tmp_path / "server.log"),
     )
+    app = create_app(settings=cast(Settings, settings))
 
     fake_platform = MagicMock()
     fake_platform.name = "fake"
@@ -328,10 +317,8 @@ def test_app_lifespan_cleanup_continues_if_platform_stop_raises(tmp_path):
     cli_manager = MagicMock()
     cli_manager.stop_all = AsyncMock()
 
-    api_app_mod = importlib.import_module("api.app")
     registry_cleanup = AsyncMock()
     with (
-        patch.object(api_app_mod, "get_settings", return_value=settings),
         patch.object(ProviderRegistry, "cleanup", new=registry_cleanup),
         patch(
             "messaging.platforms.factory.create_messaging_platform",
@@ -352,8 +339,6 @@ def test_app_lifespan_messaging_import_error_no_crash(tmp_path, caplog):
     """Messaging import failure logs warning and continues without crash."""
     from api.app import create_app
 
-    app = create_app()
-
     settings = _app_settings(
         messaging_platform="telegram",
         telegram_bot_token="token",
@@ -366,11 +351,10 @@ def test_app_lifespan_messaging_import_error_no_crash(tmp_path, caplog):
         port=8082,
         log_file=str(tmp_path / "server.log"),
     )
+    app = create_app(settings=cast(Settings, settings))
 
-    api_app_mod = importlib.import_module("api.app")
     registry_cleanup = AsyncMock()
     with (
-        patch.object(api_app_mod, "get_settings", return_value=settings),
         patch.object(ProviderRegistry, "cleanup", new=registry_cleanup),
         patch(
             "messaging.platforms.factory.create_messaging_platform",
@@ -388,8 +372,6 @@ def test_app_lifespan_platform_start_exception_cleanup_still_runs(tmp_path):
     """Exception during platform.start() logs error, cleanup still runs."""
     from api.app import create_app
 
-    app = create_app()
-
     settings = _app_settings(
         messaging_platform="telegram",
         telegram_bot_token="token",
@@ -402,6 +384,7 @@ def test_app_lifespan_platform_start_exception_cleanup_still_runs(tmp_path):
         port=8082,
         log_file=str(tmp_path / "server.log"),
     )
+    app = create_app(settings=cast(Settings, settings))
 
     fake_platform = MagicMock()
     fake_platform.name = "fake"
@@ -417,10 +400,8 @@ def test_app_lifespan_platform_start_exception_cleanup_still_runs(tmp_path):
     cli_manager = MagicMock()
     cli_manager.stop_all = AsyncMock()
 
-    api_app_mod = importlib.import_module("api.app")
     registry_cleanup = AsyncMock()
     with (
-        patch.object(api_app_mod, "get_settings", return_value=settings),
         patch.object(ProviderRegistry, "cleanup", new=registry_cleanup),
         patch(
             "messaging.platforms.factory.create_messaging_platform",
@@ -439,8 +420,6 @@ def test_app_lifespan_flush_pending_save_exception_warning_only(tmp_path):
     """Session store flush exception on shutdown is logged as warning, no crash."""
     from api.app import create_app
 
-    app = create_app()
-
     settings = _app_settings(
         messaging_platform="telegram",
         telegram_bot_token="token",
@@ -453,6 +432,7 @@ def test_app_lifespan_flush_pending_save_exception_warning_only(tmp_path):
         port=8082,
         log_file=str(tmp_path / "server.log"),
     )
+    app = create_app(settings=cast(Settings, settings))
 
     fake_platform = MagicMock()
     fake_platform.name = "fake"
@@ -469,10 +449,8 @@ def test_app_lifespan_flush_pending_save_exception_warning_only(tmp_path):
     cli_manager = MagicMock()
     cli_manager.stop_all = AsyncMock()
 
-    api_app_mod = importlib.import_module("api.app")
     registry_cleanup = AsyncMock()
     with (
-        patch.object(api_app_mod, "get_settings", return_value=settings),
         patch.object(ProviderRegistry, "cleanup", new=registry_cleanup),
         patch(
             "messaging.platforms.factory.create_messaging_platform",

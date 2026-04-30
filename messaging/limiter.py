@@ -12,7 +12,6 @@ from typing import Any
 
 from loguru import logger
 
-from config.settings import get_settings
 from core.rate_limit import StrictSlidingWindowLimiter as SlidingWindowLimiter
 
 from .safe_diagnostics import format_exception_for_log
@@ -20,42 +19,19 @@ from .safe_diagnostics import format_exception_for_log
 
 class MessagingRateLimiter:
     """
-    A thread-safe global rate limiter for messaging.
+    A platform-owned rate limiter for messaging.
 
     Uses a custom queue with task compaction (deduplication) to ensure
     only the latest version of a message update is processed.
     """
 
-    _instance: MessagingRateLimiter | None = None
-    _lock = asyncio.Lock()
-
-    def __new__(cls, *args, **kwargs):
-        return super().__new__(cls)
-
-    @classmethod
-    async def get_instance(
-        cls,
+    def __init__(
+        self,
         *,
-        rate_limit: int = 1,
-        rate_window: float = 1.0,
-    ) -> MessagingRateLimiter:
-        """Get the singleton instance of the limiter.
-
-        ``rate_limit`` and ``rate_window`` apply only when the singleton is first
-        created. Call :meth:`shutdown_instance` before changing parameters.
-        """
-        async with cls._lock:
-            if cls._instance is None:
-                cls._instance = cls(rate_limit=rate_limit, rate_window=rate_window)
-                # Start the background worker (tracked for graceful shutdown).
-                cls._instance._start_worker()
-        return cls._instance
-
-    def __init__(self, *, rate_limit: int, rate_window: float) -> None:
-        # Prevent double initialization in singleton
-        if hasattr(self, "_initialized"):
-            return
-
+        rate_limit: int,
+        rate_window: float,
+        log_messaging_error_details: bool = False,
+    ) -> None:
         self.limiter = SlidingWindowLimiter(rate_limit, rate_window)
         # Custom queue state - using deque for O(1) popleft
         self._queue_list: deque[str] = deque()  # Deque of dedup_keys in order
@@ -66,14 +42,14 @@ class MessagingRateLimiter:
         self._shutdown = asyncio.Event()
         self._worker_task: asyncio.Task | None = None
 
-        self._initialized = True
+        self._log_messaging_error_details = log_messaging_error_details
         self._paused_until = 0
 
         logger.info(
             f"MessagingRateLimiter initialized ({rate_limit} req / {rate_window}s with Task Compaction)"
         )
 
-    def _start_worker(self) -> None:
+    def start(self) -> None:
         """Ensure the worker task exists."""
         if self._worker_task and not self._worker_task.done():
             return
@@ -146,17 +122,18 @@ class MessagingRateLimiter:
                                 asyncio.get_event_loop().time() + wait_secs
                             )
                         else:
-                            d = get_settings().log_messaging_error_details
                             logger.error(
                                 "Error in limiter worker for key {}: {}",
                                 dedup_key,
-                                format_exception_for_log(e, log_full_message=d),
+                                format_exception_for_log(
+                                    e,
+                                    log_full_message=self._log_messaging_error_details,
+                                ),
                             )
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                d = get_settings().log_messaging_error_details
-                if d:
+                if self._log_messaging_error_details:
                     logger.error(
                         "MessagingRateLimiter worker critical error: {}",
                         e,
@@ -192,24 +169,14 @@ class MessagingRateLimiter:
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            d = get_settings().log_messaging_error_details
             logger.debug(
                 "MessagingRateLimiter worker shutdown error: {}",
-                format_exception_for_log(e, log_full_message=d),
+                format_exception_for_log(
+                    e, log_full_message=self._log_messaging_error_details
+                ),
             )
         finally:
             self._worker_task = None
-
-    @classmethod
-    async def shutdown_instance(cls, timeout: float = 2.0) -> None:
-        """Shutdown and clear the singleton instance (safe to call multiple times)."""
-        inst = cls._instance
-        if not inst:
-            return
-        try:
-            await inst.shutdown(timeout=timeout)
-        finally:
-            cls._instance = None
 
     async def _enqueue_internal(self, func, future, dedup_key, front=False):
         await self._enqueue_internal_multi(func, [future], dedup_key, front)
@@ -269,8 +236,7 @@ class MessagingRateLimiter:
                         x in error_msg for x in ["connect", "timeout", "broken"]
                     ):
                         wait = 2**attempt
-                        d = get_settings().log_messaging_error_details
-                        if d:
+                        if self._log_messaging_error_details:
                             logger.warning(
                                 "Limiter fire_and_forget transient error (attempt {}): {}. Retrying in {}s...",
                                 attempt + 1,
@@ -287,11 +253,12 @@ class MessagingRateLimiter:
                         await asyncio.sleep(wait)
                         continue
 
-                    d = get_settings().log_messaging_error_details
                     logger.error(
                         "Final error in fire_and_forget for key {}: {}",
                         dedup_key,
-                        format_exception_for_log(e, log_full_message=d),
+                        format_exception_for_log(
+                            e, log_full_message=self._log_messaging_error_details
+                        ),
                     )
                     if not future.done():
                         future.set_exception(e)

@@ -7,7 +7,7 @@ from config.settings import Settings
 from core.anthropic import get_token_count
 
 from . import dependencies
-from .dependencies import get_settings, require_api_key
+from .dependencies import get_request_settings, require_api_key
 from .models.anthropic import MessagesRequest, TokenCountRequest
 from .models.responses import ModelResponse, ModelsListResponse
 from .services import ClaudeProxyService
@@ -56,7 +56,7 @@ SUPPORTED_CLAUDE_MODELS = [
 
 def get_proxy_service(
     request: Request,
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_request_settings),
 ) -> ClaudeProxyService:
     """Build the request service for route handlers."""
     return ClaudeProxyService(
@@ -110,7 +110,7 @@ async def probe_count_tokens(_auth=Depends(require_api_key)):
 
 @router.get("/")
 async def root(
-    settings: Settings = Depends(get_settings), _auth=Depends(require_api_key)
+    settings: Settings = Depends(get_request_settings), _auth=Depends(require_api_key)
 ):
     """Root endpoint."""
     return {

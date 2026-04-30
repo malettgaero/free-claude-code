@@ -43,13 +43,13 @@ class TestSettings:
         assert settings.debug_platform_edits is False
         assert settings.debug_subagent_stack is False
 
-    def test_get_settings_cached(self):
-        """Test get_settings returns cached instance."""
+    def test_get_settings_returns_fresh_instance(self):
+        """Test get_settings does not share process-global state."""
         from config.settings import get_settings
 
         s1 = get_settings()
         s2 = get_settings()
-        assert s1 is s2  # Same object (cached)
+        assert s1 is not s2
 
     def test_empty_string_to_none_for_optional_int(self):
         """Test that empty string converts to None for optional int fields."""

@@ -350,10 +350,12 @@ class DiscordPlatform(MessagingPlatform):
 
         from ..limiter import MessagingRateLimiter
 
-        self._limiter = await MessagingRateLimiter.get_instance(
+        self._limiter = MessagingRateLimiter(
             rate_limit=self._messaging_rate_limit,
             rate_window=self._messaging_rate_window,
+            log_messaging_error_details=self._log_api_error_tracebacks,
         )
+        self._limiter.start()
 
         self._start_task = asyncio.create_task(
             self._client.start(self.bot_token),
@@ -385,6 +387,9 @@ class DiscordPlatform(MessagingPlatform):
                 self._start_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await self._start_task
+        if self._limiter is not None:
+            await self._limiter.shutdown()
+            self._limiter = None
 
         self._connected = False
         logger.info("Discord platform stopped")

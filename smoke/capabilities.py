@@ -254,7 +254,7 @@ CAPABILITY_CONTRACTS: tuple[CapabilityContract, ...] = (
         "provider_runtime",
         "rate_limit_and_disconnect",
         "smart_rate_limiting",
-        "providers.rate_limit.GlobalRateLimiter",
+        "providers.rate_limit.ProviderRateLimiter",
         "concurrent provider requests and 429/disconnect failures",
         "proactive throttle, retry, cleanup",
         "mapped provider error or smoke skip for upstream disconnect",

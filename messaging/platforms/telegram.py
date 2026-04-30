@@ -174,10 +174,12 @@ class TelegramPlatform(MessagingPlatform):
         # Initialize rate limiter
         from ..limiter import MessagingRateLimiter
 
-        self._limiter = await MessagingRateLimiter.get_instance(
+        self._limiter = MessagingRateLimiter(
             rate_limit=self._messaging_rate_limit,
             rate_window=self._messaging_rate_window,
+            log_messaging_error_details=self._log_api_error_tracebacks,
         )
+        self._limiter.start()
 
         # Send startup notification
         try:
@@ -208,6 +210,9 @@ class TelegramPlatform(MessagingPlatform):
             await self._application.updater.stop()
             await self._application.stop()
             await self._application.shutdown()
+        if self._limiter is not None:
+            await self._limiter.shutdown()
+            self._limiter = None
 
         self._connected = False
         logger.info("Telegram platform stopped")

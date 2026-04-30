@@ -11,7 +11,7 @@ from providers.exceptions import (
     OverloadedError,
     RateLimitError,
 )
-from providers.rate_limit import GlobalRateLimiter
+from providers.rate_limit import ProviderRateLimiter
 
 
 def user_visible_message_for_mapped_provider_error(
@@ -29,17 +29,14 @@ def user_visible_message_for_mapped_provider_error(
     return get_user_facing_error_message(mapped, read_timeout_s=read_timeout_s)
 
 
-def map_error(
-    e: Exception, *, rate_limiter: GlobalRateLimiter | None = None
-) -> Exception:
+def map_error(e: Exception, *, rate_limiter: ProviderRateLimiter) -> Exception:
     """Map OpenAI or HTTPX exception to specific ProviderError.
 
-    Streaming transports should pass their scoped limiter (``self._global_rate_limiter``)
-    so reactive 429 handling applies to the correct provider. Tests may omit
-    ``rate_limiter`` to use the process-wide singleton.
+    Streaming transports must pass their scoped limiter so reactive 429 handling
+    applies to the correct provider.
     """
     message = get_user_facing_error_message(e)
-    limiter = rate_limiter or GlobalRateLimiter.get_instance()
+    limiter = rate_limiter
 
     if isinstance(e, openai.AuthenticationError):
         return AuthenticationError(message, raw_error=str(e))

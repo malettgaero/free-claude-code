@@ -69,6 +69,7 @@ class ClaudeMessageHandler:
         self._tree_queue = TreeQueueManager(
             queue_update_callback=self.update_queue_positions,
             node_started_callback=self.mark_node_processing,
+            log_messaging_error_details=log_messaging_error_details,
         )
         self._rendering_profile = build_rendering_profile(platform.name)
 

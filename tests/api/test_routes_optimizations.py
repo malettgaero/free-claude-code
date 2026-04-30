@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api.app import create_app
-from api.dependencies import get_settings
+from api.dependencies import get_request_settings
 from config.settings import Settings
 
 app = create_app()
@@ -25,7 +25,7 @@ def mock_settings():
 
 
 def test_create_message_fast_prefix_detection(client, mock_settings):
-    app.dependency_overrides[get_settings] = lambda: mock_settings
+    app.dependency_overrides[get_request_settings] = lambda: mock_settings
 
     payload = {
         "model": "claude-3-sonnet",
@@ -53,7 +53,7 @@ def test_create_message_fast_prefix_detection(client, mock_settings):
 
 
 def test_create_message_quota_check_mock(client, mock_settings):
-    app.dependency_overrides[get_settings] = lambda: mock_settings
+    app.dependency_overrides[get_request_settings] = lambda: mock_settings
 
     payload = {
         "model": "claude-3-sonnet",
@@ -71,7 +71,7 @@ def test_create_message_quota_check_mock(client, mock_settings):
 
 
 def test_create_message_title_generation_skip(client, mock_settings):
-    app.dependency_overrides[get_settings] = lambda: mock_settings
+    app.dependency_overrides[get_request_settings] = lambda: mock_settings
 
     payload = {
         "model": "claude-3-sonnet",

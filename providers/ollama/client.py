@@ -5,16 +5,20 @@ import httpx
 from providers.anthropic_messages import AnthropicMessagesTransport
 from providers.base import ProviderConfig
 from providers.defaults import OLLAMA_DEFAULT_BASE
+from providers.rate_limit import ProviderRateLimiter
 
 
 class OllamaProvider(AnthropicMessagesTransport):
     """Ollama provider using native Anthropic Messages API."""
 
-    def __init__(self, config: ProviderConfig):
+    def __init__(
+        self, config: ProviderConfig, *, rate_limiter: ProviderRateLimiter | None = None
+    ):
         super().__init__(
             config,
             provider_name="OLLAMA",
             default_base_url=OLLAMA_DEFAULT_BASE,
+            rate_limiter=rate_limiter,
         )
         self._api_key = config.api_key or "ollama"
 

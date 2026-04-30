@@ -335,19 +335,15 @@ class TestDiscordPlatform:
         async def _fake_start(_token):
             platform._connected = True
 
-        with (
-            patch.object(
-                platform._client,
-                "start",
-                new_callable=AsyncMock,
-                side_effect=_fake_start,
-            ),
-            patch(
-                "messaging.limiter.MessagingRateLimiter.get_instance",
-                new_callable=AsyncMock,
-            ),
+        with patch.object(
+            platform._client,
+            "start",
+            new_callable=AsyncMock,
+            side_effect=_fake_start,
         ):
             await platform.start()
+            assert platform._limiter is not None
+            await platform._limiter.shutdown()
         assert platform.is_connected is True
 
     @pytest.mark.asyncio

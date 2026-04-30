@@ -209,7 +209,6 @@ async def test_telegram_start_retries_on_network_error(monkeypatch):
 
         with (
             patch("telegram.ext.Application.builder") as mock_builder,
-            patch("messaging.limiter.MessagingRateLimiter.get_instance", AsyncMock()),
         ):
             mock_app = MagicMock()
             mock_app.initialize = AsyncMock(side_effect=[NetworkError("no"), None])
@@ -219,6 +218,8 @@ async def test_telegram_start_retries_on_network_error(monkeypatch):
             mock_builder.return_value.token.return_value.request.return_value.build.return_value = mock_app
 
             await platform.start()
+            assert platform._limiter is not None
+            await platform._limiter.shutdown()
             assert platform.is_connected is True
 
 

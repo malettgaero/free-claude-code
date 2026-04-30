@@ -7,7 +7,6 @@ import httpx
 import pytest
 
 from providers.base import ProviderConfig
-from providers.rate_limit import GlobalRateLimiter
 from tests.providers.test_anthropic_messages import (
     FakeResponse,
     MockRequest,
@@ -32,94 +31,84 @@ def provider_config():
 @pytest.mark.asyncio
 async def test_native_stream_retries_on_http_429_then_streams(provider_config):
     """First response 429 (closed), second 200 streams; send is called twice."""
-    GlobalRateLimiter.reset_instance()
-    try:
-        provider = NativeProvider(provider_config)
-        req = MockRequest()
-        request_obj = httpx.Request("POST", "https://custom.test/v1/messages")
-        ok_lines = [
-            "event: message_start",
-            'data: {"type":"message_start"}',
-            "",
-        ]
-        ok_response = FakeResponse(lines=ok_lines)
-        too_many = FakeResponse(status_code=429, text="rate limited")
+    provider = NativeProvider(provider_config)
+    req = MockRequest()
+    request_obj = httpx.Request("POST", "https://custom.test/v1/messages")
+    ok_lines = [
+        "event: message_start",
+        'data: {"type":"message_start"}',
+        "",
+    ]
+    ok_response = FakeResponse(lines=ok_lines)
+    too_many = FakeResponse(status_code=429, text="rate limited")
 
-        send_calls = {"n": 0}
+    send_calls = {"n": 0}
 
-        async def send_side_effect(*_a, **_kw):
-            send_calls["n"] += 1
-            if send_calls["n"] == 1:
-                return too_many
-            return ok_response
+    async def send_side_effect(*_a, **_kw):
+        send_calls["n"] += 1
+        if send_calls["n"] == 1:
+            return too_many
+        return ok_response
 
-        with (
-            patch.object(provider._client, "build_request", return_value=request_obj),
-            patch.object(
-                provider._client,
-                "send",
-                new_callable=AsyncMock,
-                side_effect=send_side_effect,
-            ),
-            patch(
-                "asyncio.sleep",
-                new_callable=AsyncMock,
-            ),
-        ):
-            events = [e async for e in provider.stream_response(req)]
+    with (
+        patch.object(provider._client, "build_request", return_value=request_obj),
+        patch.object(
+            provider._client,
+            "send",
+            new_callable=AsyncMock,
+            side_effect=send_side_effect,
+        ),
+        patch(
+            "asyncio.sleep",
+            new_callable=AsyncMock,
+        ),
+    ):
+        events = [e async for e in provider.stream_response(req)]
 
-        assert send_calls["n"] == 2
-        assert too_many.is_closed
-        assert ok_response.is_closed
-        assert events == [
-            "event: message_start\n",
-            'data: {"type":"message_start"}\n',
-            "\n",
-        ]
-    finally:
-        GlobalRateLimiter.reset_instance()
+    assert send_calls["n"] == 2
+    assert too_many.is_closed
+    assert ok_response.is_closed
+    assert events == [
+        "event: message_start\n",
+        'data: {"type":"message_start"}\n',
+        "\n",
+    ]
 
 
 @pytest.mark.asyncio
 async def test_non_429_http_error_not_retried(provider_config):
     """HTTP 500 from upstream is not retried; single send."""
-    GlobalRateLimiter.reset_instance()
-    try:
 
-        @asynccontextmanager
-        async def _slot():
-            yield
+    @asynccontextmanager
+    async def _slot():
+        yield
 
-        with patch("providers.anthropic_messages.GlobalRateLimiter") as mock_gl:
-            instance = mock_gl.get_scoped_instance.return_value
+    with patch("providers.anthropic_messages.ProviderRateLimiter") as mock_gl:
+        instance = mock_gl.return_value
 
-            async def _passthrough(fn, *args, **kwargs):
-                return await fn(*args, **kwargs)
+        async def _passthrough(fn, *args, **kwargs):
+            return await fn(*args, **kwargs)
 
-            instance.execute_with_retry = AsyncMock(side_effect=_passthrough)
-            instance.concurrency_slot.side_effect = _slot
+        instance.execute_with_retry = AsyncMock(side_effect=_passthrough)
+        instance.concurrency_slot.side_effect = _slot
 
-            provider = NativeProvider(provider_config)
-            req = MockRequest()
-            err = FakeResponse(status_code=500, text="Internal Server Error")
+        provider = NativeProvider(provider_config)
+        req = MockRequest()
+        err = FakeResponse(status_code=500, text="Internal Server Error")
 
-            with (
-                patch.object(
-                    provider._client, "build_request", return_value=MagicMock()
-                ),
-                patch.object(
-                    provider._client,
-                    "send",
-                    new_callable=AsyncMock,
-                    return_value=err,
-                ) as mock_send,
-            ):
-                events = [e async for e in provider.stream_response(req)]
+        with (
+            patch.object(provider._client, "build_request", return_value=MagicMock()),
+            patch.object(
+                provider._client,
+                "send",
+                new_callable=AsyncMock,
+                return_value=err,
+            ) as mock_send,
+        ):
+            events = [e async for e in provider.stream_response(req)]
 
-            mock_send.assert_awaited_once()
-            assert err.is_closed
-            assert_canonical_stream_error_envelope(
-                events, user_message_substr="Provider API request failed"
-            )
-    finally:
-        GlobalRateLimiter.reset_instance()
+        mock_send.assert_awaited_once()
+        assert err.is_closed
+        assert_canonical_stream_error_envelope(
+            events, user_message_substr="Provider API request failed"
+        )

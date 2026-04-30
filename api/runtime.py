@@ -16,7 +16,7 @@ from api.messaging_workspace import (
     resolve_claude_data_dir_abs,
     resolve_cli_workspace_abs,
 )
-from config.settings import Settings, get_settings
+from config.settings import Settings
 from providers.registry import ProviderRegistry
 
 if TYPE_CHECKING:
@@ -82,12 +82,13 @@ class AppRuntime:
     def for_app(
         cls,
         app: FastAPI,
-        settings: Settings | None = None,
+        settings: Settings,
     ) -> AppRuntime:
-        return cls(app=app, settings=settings or get_settings())
+        return cls(app=app, settings=settings)
 
     async def startup(self) -> None:
         logger.info("Starting Claude Code Proxy...")
+        self.app.state.settings = self.settings
         self._provider_registry = ProviderRegistry()
         self.app.state.provider_registry = self._provider_registry
         warn_if_process_auth_token(self.settings)
@@ -127,7 +128,6 @@ class AppRuntime:
                 self._provider_registry.cleanup(),
                 log_verbose_errors=verbose,
             )
-        await self._shutdown_limiter()
         logger.info("Server shut down cleanly")
 
     async def _start_messaging_if_configured(self) -> None:
@@ -243,6 +243,7 @@ class AppRuntime:
                 },
                 queue_update_callback=self.message_handler.update_queue_positions,
                 node_started_callback=self.message_handler.mark_node_processing,
+                log_messaging_error_details=self.settings.log_messaging_error_details,
             )
         )
         if self.message_handler.tree_queue.cleanup_stale_nodes() > 0:
@@ -255,28 +256,3 @@ class AppRuntime:
         self.app.state.messaging_platform = self.messaging_platform
         self.app.state.message_handler = self.message_handler
         self.app.state.cli_manager = self.cli_manager
-
-    async def _shutdown_limiter(self) -> None:
-        verbose = self.settings.log_api_error_tracebacks
-        try:
-            from messaging.limiter import MessagingRateLimiter
-        except Exception as e:
-            if verbose:
-                logger.debug(
-                    "Rate limiter shutdown skipped (import failed): {}: {}",
-                    type(e).__name__,
-                    e,
-                )
-            else:
-                logger.debug(
-                    "Rate limiter shutdown skipped (import failed): exc_type={}",
-                    type(e).__name__,
-                )
-            return
-
-        await best_effort(
-            "MessagingRateLimiter.shutdown_instance",
-            MessagingRateLimiter.shutdown_instance(),
-            timeout_s=2.0,
-            log_verbose_errors=verbose,
-        )

@@ -5,7 +5,7 @@ import random
 import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from typing import Any, ClassVar, TypeVar
+from typing import Any, TypeVar
 
 import httpx
 import openai
@@ -16,11 +16,11 @@ from core.rate_limit import StrictSlidingWindowLimiter
 T = TypeVar("T")
 
 
-class GlobalRateLimiter:
+class ProviderRateLimiter:
     """
-    Global singleton rate limiter that blocks all requests
-    when a rate limit error is encountered (reactive) and
-    throttles requests (proactive) using a strict rolling window.
+    Provider rate limiter that blocks requests for one upstream provider when a
+    rate limit error is encountered (reactive) and throttles requests
+    (proactive) using a strict rolling window.
 
     Optionally enforces a max_concurrency cap: at most N provider streams
     may be open simultaneously, independent of the sliding window.
@@ -30,19 +30,12 @@ class GlobalRateLimiter:
     Concurrency limit - caps simultaneously open streams.
     """
 
-    _instance: ClassVar[GlobalRateLimiter | None] = None
-    _scoped_instances: ClassVar[dict[str, GlobalRateLimiter]] = {}
-
     def __init__(
         self,
         rate_limit: int = 40,
         rate_window: float = 60.0,
         max_concurrency: int = 5,
     ):
-        # Prevent re-initialization on singleton reuse
-        if hasattr(self, "_initialized"):
-            return
-
         if rate_limit <= 0:
             raise ValueError("rate_limit must be > 0")
         if rate_window <= 0:
@@ -58,69 +51,9 @@ class GlobalRateLimiter:
         )
         self._blocked_until: float = 0
         self._concurrency_sem = asyncio.Semaphore(max_concurrency)
-        self._initialized = True
-
         logger.info(
-            f"GlobalRateLimiter (Provider) initialized ({rate_limit} req / {rate_window}s, max_concurrency={max_concurrency})"
+            f"ProviderRateLimiter initialized ({rate_limit} req / {rate_window}s, max_concurrency={max_concurrency})"
         )
-
-    @classmethod
-    def get_instance(
-        cls,
-        rate_limit: int | None = None,
-        rate_window: float | None = None,
-        max_concurrency: int = 5,
-    ) -> GlobalRateLimiter:
-        """Get or create the singleton instance.
-
-        Args:
-            rate_limit: Requests per window (only used on first creation)
-            rate_window: Window in seconds (only used on first creation)
-            max_concurrency: Max simultaneous open streams (only used on first creation)
-        """
-        if cls._instance is None:
-            cls._instance = cls(
-                rate_limit=rate_limit or 40,
-                rate_window=rate_window or 60.0,
-                max_concurrency=max_concurrency,
-            )
-        return cls._instance
-
-    @classmethod
-    def get_scoped_instance(
-        cls,
-        scope: str,
-        *,
-        rate_limit: int | None = None,
-        rate_window: float | None = None,
-        max_concurrency: int = 5,
-    ) -> GlobalRateLimiter:
-        """Get or create a provider-scoped limiter instance."""
-        if not scope:
-            raise ValueError("scope must be non-empty")
-        desired_rate_limit = rate_limit or 40
-        desired_rate_window = float(rate_window or 60.0)
-        existing = cls._scoped_instances.get(scope)
-        if existing and existing.matches_config(
-            desired_rate_limit, desired_rate_window, max_concurrency
-        ):
-            return existing
-        if existing:
-            logger.info(
-                "Rebuilding provider rate limiter for updated scope '{}'", scope
-            )
-        cls._scoped_instances[scope] = cls(
-            rate_limit=desired_rate_limit,
-            rate_window=desired_rate_window,
-            max_concurrency=max_concurrency,
-        )
-        return cls._scoped_instances[scope]
-
-    @classmethod
-    def reset_instance(cls) -> None:
-        """Reset singleton (for testing)."""
-        cls._instance = None
-        cls._scoped_instances = {}
 
     async def wait_if_blocked(self) -> bool:
         """
@@ -265,3 +198,40 @@ class GlobalRateLimiter:
 
         assert last_exc is not None
         raise last_exc
+
+
+class ProviderRateLimiterPool:
+    """App-owned provider-scoped limiter cache."""
+
+    def __init__(self) -> None:
+        self._limiters: dict[str, ProviderRateLimiter] = {}
+
+    def get(
+        self,
+        scope: str,
+        *,
+        rate_limit: int | None = None,
+        rate_window: float | None = None,
+        max_concurrency: int = 5,
+    ) -> ProviderRateLimiter:
+        """Return one limiter per provider scope for this pool."""
+        if not scope:
+            raise ValueError("scope must be non-empty")
+        desired_rate_limit = rate_limit or 40
+        desired_rate_window = float(rate_window or 60.0)
+        existing = self._limiters.get(scope)
+        if existing and existing.matches_config(
+            desired_rate_limit, desired_rate_window, max_concurrency
+        ):
+            return existing
+        if existing:
+            logger.info(
+                "Rebuilding provider rate limiter for updated scope '{}'", scope
+            )
+        limiter = ProviderRateLimiter(
+            rate_limit=desired_rate_limit,
+            rate_window=desired_rate_window,
+            max_concurrency=max_concurrency,
+        )
+        self._limiters[scope] = limiter
+        return limiter

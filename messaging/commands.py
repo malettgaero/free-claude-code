@@ -271,5 +271,6 @@ async def handle_clear_command(
         TreeQueueManager(
             queue_update_callback=handler.update_queue_positions,
             node_started_callback=handler.mark_node_processing,
+            log_messaging_error_details=handler._log_messaging_error_details,
         )
     )

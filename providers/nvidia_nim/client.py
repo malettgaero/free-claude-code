@@ -10,6 +10,7 @@ from config.nim import NimSettings
 from providers.base import ProviderConfig
 from providers.defaults import NVIDIA_NIM_DEFAULT_BASE
 from providers.openai_compat import OpenAIChatTransport
+from providers.rate_limit import ProviderRateLimiter
 
 from .request import (
     build_request_body,
@@ -22,12 +23,19 @@ from .request import (
 class NvidiaNimProvider(OpenAIChatTransport):
     """NVIDIA NIM provider using official OpenAI client."""
 
-    def __init__(self, config: ProviderConfig, *, nim_settings: NimSettings):
+    def __init__(
+        self,
+        config: ProviderConfig,
+        *,
+        nim_settings: NimSettings,
+        rate_limiter: ProviderRateLimiter | None = None,
+    ):
         super().__init__(
             config,
             provider_name="NIM",
             base_url=config.base_url or NVIDIA_NIM_DEFAULT_BASE,
             api_key=config.api_key,
+            rate_limiter=rate_limiter,
         )
         self._nim_settings = nim_settings
 

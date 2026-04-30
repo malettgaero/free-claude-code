@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from loguru import logger
 
 from config.logging_config import configure_logging
-from config.settings import get_settings
+from config.settings import Settings
 from providers.exceptions import ProviderError
 
 from .routes import router
@@ -22,7 +22,8 @@ from .validation_log import summarize_request_validation_body
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
-    runtime = AppRuntime.for_app(app, settings=get_settings())
+    settings = app.state.settings
+    runtime = AppRuntime.for_app(app, settings=settings)
     await runtime.startup()
 
     yield
@@ -30,18 +31,18 @@ async def lifespan(app: FastAPI):
     await runtime.shutdown()
 
 
-def create_app() -> FastAPI:
+def create_app(settings: Settings | None = None) -> FastAPI:
     """Create and configure the FastAPI application."""
-    settings = get_settings()
+    settings = settings or Settings()
     configure_logging(
         settings.log_file, verbose_third_party=settings.log_raw_api_payloads
     )
-
     app = FastAPI(
         title="Claude Code Proxy",
         version="2.0.0",
         lifespan=lifespan,
     )
+    app.state.settings = settings
 
     # Register routes
     app.include_router(router)
@@ -72,7 +73,7 @@ def create_app() -> FastAPI:
     @app.exception_handler(ProviderError)
     async def provider_error_handler(request: Request, exc: ProviderError):
         """Handle provider-specific errors and return Anthropic format."""
-        err_settings = get_settings()
+        err_settings = app.state.settings
         if err_settings.log_api_error_tracebacks:
             logger.error(
                 "Provider Error: error_type={} status_code={} message={}",
@@ -94,7 +95,7 @@ def create_app() -> FastAPI:
     @app.exception_handler(Exception)
     async def general_error_handler(request: Request, exc: Exception):
         """Handle general errors and return Anthropic format."""
-        settings = get_settings()
+        settings = app.state.settings
         if settings.log_api_error_tracebacks:
             logger.error("General Error: {}", exc)
             logger.error(traceback.format_exc())

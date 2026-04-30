@@ -26,7 +26,7 @@ from providers.error_mapping import (
     map_error,
     user_visible_message_for_mapped_provider_error,
 )
-from providers.rate_limit import GlobalRateLimiter
+from providers.rate_limit import ProviderRateLimiter
 
 StreamChunkMode = Literal["line", "event"]
 
@@ -42,14 +42,14 @@ class AnthropicMessagesTransport(BaseProvider):
         *,
         provider_name: str,
         default_base_url: str,
+        rate_limiter: ProviderRateLimiter | None = None,
     ):
         super().__init__(config)
         self._provider_name = provider_name
         self._api_key = config.api_key
         self._base_url = (config.base_url or default_base_url).rstrip("/")
-        self._global_rate_limiter = GlobalRateLimiter.get_scoped_instance(
-            provider_name.lower(),
-            rate_limit=config.rate_limit,
+        self._rate_limiter = rate_limiter or ProviderRateLimiter(
+            rate_limit=config.rate_limit or 40,
             rate_window=config.rate_window,
             max_concurrency=config.max_concurrency,
         )
@@ -208,7 +208,7 @@ class AnthropicMessagesTransport(BaseProvider):
 
     def _get_error_message(self, error: Exception, request_id: str | None) -> str:
         """Map an exception into a user-facing provider error message."""
-        mapped_error = map_error(error, rate_limiter=self._global_rate_limiter)
+        mapped_error = map_error(error, rate_limiter=self._rate_limiter)
         base_message = user_visible_message_for_mapped_provider_error(
             mapped_error,
             provider_name=self._provider_name,
@@ -298,7 +298,7 @@ class AnthropicMessagesTransport(BaseProvider):
         state = self._new_stream_state(request, thinking_enabled=thinking_enabled)
         emitted_tracker = EmittedNativeSseTracker()
 
-        async with self._global_rate_limiter.concurrency_slot():
+        async with self._rate_limiter.concurrency_slot():
             try:
 
                 async def _validated_stream_send() -> httpx.Response:
@@ -315,7 +315,7 @@ class AnthropicMessagesTransport(BaseProvider):
                                 await send_response.aclose()
                     return send_response
 
-                response = await self._global_rate_limiter.execute_with_retry(
+                response = await self._rate_limiter.execute_with_retry(
                     _validated_stream_send
                 )
 

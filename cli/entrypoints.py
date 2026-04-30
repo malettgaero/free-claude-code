@@ -24,14 +24,15 @@ def serve() -> None:
     """Start the FastAPI server (registered as `free-claude-code` script)."""
     import uvicorn
 
+    from api.app import create_app
     from cli.process_registry import kill_all_best_effort
-    from config.settings import get_settings
+    from config.settings import Settings
 
-    settings = get_settings()
+    settings = Settings()
+    app = create_app(settings=settings)
     try:
         uvicorn.run(
-            "api.app:create_app",
-            factory=True,
+            app,
             host=settings.host,
             port=settings.port,
             log_level="debug",

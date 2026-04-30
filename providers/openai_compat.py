@@ -29,7 +29,7 @@ from providers.error_mapping import (
     map_error,
     user_visible_message_for_mapped_provider_error,
 )
-from providers.rate_limit import GlobalRateLimiter
+from providers.rate_limit import ProviderRateLimiter
 
 
 def _iter_heuristic_tool_use_sse(
@@ -66,14 +66,14 @@ class OpenAIChatTransport(BaseProvider):
         provider_name: str,
         base_url: str,
         api_key: str,
+        rate_limiter: ProviderRateLimiter | None = None,
     ):
         super().__init__(config)
         self._provider_name = provider_name
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
-        self._global_rate_limiter = GlobalRateLimiter.get_scoped_instance(
-            provider_name.lower(),
-            rate_limit=config.rate_limit,
+        self._rate_limiter = rate_limiter or ProviderRateLimiter(
+            rate_limit=config.rate_limit or 40,
             rate_window=config.rate_window,
             max_concurrency=config.max_concurrency,
         )
@@ -126,7 +126,7 @@ class OpenAIChatTransport(BaseProvider):
     async def _create_stream(self, body: dict) -> tuple[Any, dict]:
         """Create a streaming chat completion, optionally retrying once."""
         try:
-            stream = await self._global_rate_limiter.execute_with_retry(
+            stream = await self._rate_limiter.execute_with_retry(
                 self._client.chat.completions.create, **body, stream=True
             )
             return stream, body
@@ -135,7 +135,7 @@ class OpenAIChatTransport(BaseProvider):
             if retry_body is None:
                 raise
 
-            stream = await self._global_rate_limiter.execute_with_retry(
+            stream = await self._rate_limiter.execute_with_retry(
                 self._client.chat.completions.create, **retry_body, stream=True
             )
             return stream, retry_body
@@ -258,7 +258,7 @@ class OpenAIChatTransport(BaseProvider):
         finish_reason = None
         usage_info = None
 
-        async with self._global_rate_limiter.concurrency_slot():
+        async with self._rate_limiter.concurrency_slot():
             try:
                 stream, body = await self._create_stream(body)
                 async for chunk in stream:
@@ -337,7 +337,7 @@ class OpenAIChatTransport(BaseProvider):
                 raise
             except Exception as e:
                 self._log_stream_transport_error(tag, req_tag, e)
-                mapped_e = map_error(e, rate_limiter=self._global_rate_limiter)
+                mapped_e = map_error(e, rate_limiter=self._rate_limiter)
                 base_message = user_visible_message_for_mapped_provider_error(
                     mapped_e,
                     provider_name=tag,

@@ -7,6 +7,7 @@ from typing import Any
 from providers.anthropic_messages import AnthropicMessagesTransport
 from providers.base import ProviderConfig
 from providers.defaults import DEEPSEEK_ANTHROPIC_DEFAULT_BASE
+from providers.rate_limit import ProviderRateLimiter
 
 from .request import build_request_body
 
@@ -14,11 +15,14 @@ from .request import build_request_body
 class DeepSeekProvider(AnthropicMessagesTransport):
     """DeepSeek using ``https://api.deepseek.com/anthropic`` (Anthropic Messages API)."""
 
-    def __init__(self, config: ProviderConfig):
+    def __init__(
+        self, config: ProviderConfig, *, rate_limiter: ProviderRateLimiter | None = None
+    ):
         super().__init__(
             config,
             provider_name="DEEPSEEK",
             default_base_url=DEEPSEEK_ANTHROPIC_DEFAULT_BASE,
+            rate_limiter=rate_limiter,
         )
 
     def _build_request_body(

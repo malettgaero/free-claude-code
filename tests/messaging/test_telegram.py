@@ -28,13 +28,12 @@ async def test_telegram_platform_start_success(telegram_platform):
 
         mock_builder.return_value.token.return_value.request.return_value.build.return_value = mock_app
 
-        # Mock MessagingRateLimiter
-        with patch("messaging.limiter.MessagingRateLimiter.get_instance", AsyncMock()):
-            await telegram_platform.start()
+        await telegram_platform.start()
+        await telegram_platform._limiter.shutdown()
 
-            assert telegram_platform._connected is True
-            mock_app.initialize.assert_called_once()
-            mock_app.start.assert_called_once()
+        assert telegram_platform._connected is True
+        mock_app.initialize.assert_called_once()
+        mock_app.start.assert_called_once()
 
 
 @pytest.mark.asyncio

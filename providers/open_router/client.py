@@ -15,6 +15,7 @@ from core.anthropic.native_sse_block_policy import (
 from providers.anthropic_messages import AnthropicMessagesTransport, StreamChunkMode
 from providers.base import ProviderConfig
 from providers.defaults import OPENROUTER_DEFAULT_BASE
+from providers.rate_limit import ProviderRateLimiter
 
 from .request import build_request_body
 
@@ -26,11 +27,14 @@ class OpenRouterProvider(AnthropicMessagesTransport):
 
     stream_chunk_mode: StreamChunkMode = "event"
 
-    def __init__(self, config: ProviderConfig):
+    def __init__(
+        self, config: ProviderConfig, *, rate_limiter: ProviderRateLimiter | None = None
+    ):
         super().__init__(
             config,
             provider_name="OPENROUTER",
             default_base_url=OPENROUTER_DEFAULT_BASE,
+            rate_limiter=rate_limiter,
         )
 
     def _build_request_body(

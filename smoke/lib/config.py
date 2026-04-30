@@ -101,7 +101,6 @@ class SmokeConfig:
     @classmethod
     def load(cls) -> SmokeConfig:
         root = Path(__file__).resolve().parents[2]
-        get_settings.cache_clear()
         settings = get_settings()
         return cls(
             root=root,

@@ -12,47 +12,64 @@ from config.provider_catalog import (
 from config.settings import Settings
 from providers.base import BaseProvider, ProviderConfig
 from providers.exceptions import AuthenticationError, UnknownProviderTypeError
+from providers.rate_limit import ProviderRateLimiter, ProviderRateLimiterPool
 
-ProviderFactory = Callable[[ProviderConfig, Settings], BaseProvider]
+ProviderFactory = Callable[
+    [ProviderConfig, Settings, ProviderRateLimiter], BaseProvider
+]
 
 # Backwards-compatible name for the catalog (single source: ``config.provider_catalog``).
 PROVIDER_DESCRIPTORS: dict[str, ProviderDescriptor] = PROVIDER_CATALOG
 
 
-def _create_nvidia_nim(config: ProviderConfig, settings: Settings) -> BaseProvider:
+def _create_nvidia_nim(
+    config: ProviderConfig, settings: Settings, rate_limiter: ProviderRateLimiter
+) -> BaseProvider:
     from providers.nvidia_nim import NvidiaNimProvider
 
-    return NvidiaNimProvider(config, nim_settings=settings.nim)
+    return NvidiaNimProvider(
+        config, nim_settings=settings.nim, rate_limiter=rate_limiter
+    )
 
 
-def _create_open_router(config: ProviderConfig, _settings: Settings) -> BaseProvider:
+def _create_open_router(
+    config: ProviderConfig, _settings: Settings, rate_limiter: ProviderRateLimiter
+) -> BaseProvider:
     from providers.open_router import OpenRouterProvider
 
-    return OpenRouterProvider(config)
+    return OpenRouterProvider(config, rate_limiter=rate_limiter)
 
 
-def _create_deepseek(config: ProviderConfig, _settings: Settings) -> BaseProvider:
+def _create_deepseek(
+    config: ProviderConfig, _settings: Settings, rate_limiter: ProviderRateLimiter
+) -> BaseProvider:
     from providers.deepseek import DeepSeekProvider
 
-    return DeepSeekProvider(config)
+    return DeepSeekProvider(config, rate_limiter=rate_limiter)
 
 
-def _create_lmstudio(config: ProviderConfig, _settings: Settings) -> BaseProvider:
+def _create_lmstudio(
+    config: ProviderConfig, _settings: Settings, rate_limiter: ProviderRateLimiter
+) -> BaseProvider:
     from providers.lmstudio import LMStudioProvider
 
-    return LMStudioProvider(config)
+    return LMStudioProvider(config, rate_limiter=rate_limiter)
 
 
-def _create_llamacpp(config: ProviderConfig, _settings: Settings) -> BaseProvider:
+def _create_llamacpp(
+    config: ProviderConfig, _settings: Settings, rate_limiter: ProviderRateLimiter
+) -> BaseProvider:
     from providers.llamacpp import LlamaCppProvider
 
-    return LlamaCppProvider(config)
+    return LlamaCppProvider(config, rate_limiter=rate_limiter)
 
 
-def _create_ollama(config: ProviderConfig, _settings: Settings) -> BaseProvider:
+def _create_ollama(
+    config: ProviderConfig, _settings: Settings, rate_limiter: ProviderRateLimiter
+) -> BaseProvider:
     from providers.ollama import OllamaProvider
 
-    return OllamaProvider(config)
+    return OllamaProvider(config, rate_limiter=rate_limiter)
 
 
 PROVIDER_FACTORIES: dict[str, ProviderFactory] = {
@@ -125,7 +142,12 @@ def build_provider_config(
     )
 
 
-def create_provider(provider_id: str, settings: Settings) -> BaseProvider:
+def create_provider(
+    provider_id: str,
+    settings: Settings,
+    *,
+    rate_limiter: ProviderRateLimiter | None = None,
+) -> BaseProvider:
     descriptor = PROVIDER_DESCRIPTORS.get(provider_id)
     if descriptor is None:
         supported = "', '".join(PROVIDER_DESCRIPTORS)
@@ -134,17 +156,27 @@ def create_provider(provider_id: str, settings: Settings) -> BaseProvider:
         )
 
     config = build_provider_config(descriptor, settings)
+    limiter = rate_limiter or ProviderRateLimiter(
+        rate_limit=config.rate_limit or 40,
+        rate_window=config.rate_window,
+        max_concurrency=config.max_concurrency,
+    )
     factory = PROVIDER_FACTORIES.get(provider_id)
     if factory is None:
         raise AssertionError(f"Unhandled provider descriptor: {provider_id}")
-    return factory(config, settings)
+    return factory(config, settings, limiter)
 
 
 class ProviderRegistry:
     """Cache and clean up provider instances by provider id."""
 
-    def __init__(self, providers: MutableMapping[str, BaseProvider] | None = None):
+    def __init__(
+        self,
+        providers: MutableMapping[str, BaseProvider] | None = None,
+        limiter_pool: ProviderRateLimiterPool | None = None,
+    ):
         self._providers = providers if providers is not None else {}
+        self._limiter_pool = limiter_pool or ProviderRateLimiterPool()
 
     def is_cached(self, provider_id: str) -> bool:
         """Return whether a provider for this id is already in the cache."""
@@ -152,7 +184,23 @@ class ProviderRegistry:
 
     def get(self, provider_id: str, settings: Settings) -> BaseProvider:
         if provider_id not in self._providers:
-            self._providers[provider_id] = create_provider(provider_id, settings)
+            descriptor = PROVIDER_DESCRIPTORS.get(provider_id)
+            if descriptor is None:
+                supported = "', '".join(PROVIDER_DESCRIPTORS)
+                raise UnknownProviderTypeError(
+                    f"Unknown provider_type: '{provider_id}'. Supported: '{supported}'"
+                )
+            config = build_provider_config(descriptor, settings)
+            limiter = self._limiter_pool.get(
+                provider_id,
+                rate_limit=config.rate_limit,
+                rate_window=config.rate_window,
+                max_concurrency=config.max_concurrency,
+            )
+            factory = PROVIDER_FACTORIES.get(provider_id)
+            if factory is None:
+                raise AssertionError(f"Unhandled provider descriptor: {provider_id}")
+            self._providers[provider_id] = factory(config, settings, limiter)
         return self._providers[provider_id]
 
     async def cleanup(self) -> None:

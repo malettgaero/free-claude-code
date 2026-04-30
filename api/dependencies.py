@@ -5,7 +5,6 @@ from loguru import logger
 from starlette.applications import Starlette
 
 from config.settings import Settings
-from config.settings import get_settings as _get_settings
 from core.anthropic import get_user_facing_error_message
 from providers.base import BaseProvider
 from providers.exceptions import (
@@ -15,42 +14,37 @@ from providers.exceptions import (
 )
 from providers.registry import PROVIDER_DESCRIPTORS, ProviderRegistry
 
-# Process-level cache: only for :func:`get_provider_for_type` / :func:`get_provider`
-# when there is no ``Request``/``app`` (unit tests, scripts). HTTP handlers must pass
-# ``app`` to :func:`resolve_provider` so the app-scoped registry is used.
-_providers: dict[str, BaseProvider] = {}
 
-
-def get_settings() -> Settings:
-    """Return cached :class:`~config.settings.Settings` (FastAPI-friendly alias)."""
-    return _get_settings()
+def get_request_settings(request: Request) -> Settings:
+    """Return app-owned settings installed by the application factory."""
+    settings = getattr(request.app.state, "settings", None)
+    if settings is None:
+        raise ServiceUnavailableError(
+            "Settings are not configured. Ensure create_app/AppRuntime startup ran."
+        )
+    return settings
 
 
 def resolve_provider(
     provider_type: str,
     *,
-    app: Starlette | None,
+    app: Starlette,
     settings: Settings,
 ) -> BaseProvider:
-    """Resolve a provider using the app-scoped registry when ``app`` is set.
+    """Resolve a provider using the app-scoped registry.
 
-    When ``app`` is not ``None``, the app-owned :attr:`app.state.provider_registry`
-    must exist (installed by :class:`~api.runtime.AppRuntime` during startup).
-    Callers that construct a bare ``FastAPI`` without lifespan must set
-    ``app.state.provider_registry`` explicitly.
-
-    When ``app`` is ``None`` (no HTTP context), uses the process-level
-    :data:`_providers` cache only.
+    The app-owned :attr:`app.state.provider_registry` must exist (installed by
+    :class:`~api.runtime.AppRuntime` during startup). Callers that construct a
+    bare ``FastAPI`` without lifespan must set ``app.state.provider_registry``
+    explicitly.
     """
-    if app is not None:
-        reg = getattr(app.state, "provider_registry", None)
-        if reg is None:
-            raise ServiceUnavailableError(
-                "Provider registry is not configured. Ensure AppRuntime startup ran "
-                "or assign app.state.provider_registry for test apps."
-            )
-        return _resolve_with_registry(reg, provider_type, settings)
-    return _resolve_with_registry(ProviderRegistry(_providers), provider_type, settings)
+    reg = getattr(app.state, "provider_registry", None)
+    if reg is None:
+        raise ServiceUnavailableError(
+            "Provider registry is not configured. Ensure AppRuntime startup ran "
+            "or assign app.state.provider_registry for test apps."
+        )
+    return _resolve_with_registry(reg, provider_type, settings)
 
 
 def _resolve_with_registry(
@@ -76,18 +70,8 @@ def _resolve_with_registry(
     return provider
 
 
-def get_provider_for_type(provider_type: str) -> BaseProvider:
-    """Get or create a provider in the process-level cache (no ``app``/Request).
-
-    HTTP route handlers should call :func:`resolve_provider` with the active
-    :attr:`request.app` (via :class:`~api.runtime.AppRuntime`) instead of this
-    process-wide cache.
-    """
-    return resolve_provider(provider_type, app=None, settings=get_settings())
-
-
 def require_api_key(
-    request: Request, settings: Settings = Depends(get_settings)
+    request: Request, settings: Settings = Depends(get_request_settings)
 ) -> None:
     """Require a server API key (Anthropic-style).
 
@@ -118,21 +102,3 @@ def require_api_key(
 
     if token != anthropic_auth_token:
         raise HTTPException(status_code=401, detail="Invalid API key")
-
-
-def get_provider() -> BaseProvider:
-    """Get or create the default provider (``MODEL`` / ``provider_type``).
-
-    Process-cache helper for scripts, unit tests, and non-FastAPI callers. HTTP
-    handlers must use :func:`resolve_provider` with :attr:`request.app` so the
-    app-scoped :class:`~providers.registry.ProviderRegistry` is used.
-    """
-    return get_provider_for_type(get_settings().provider_type)
-
-
-async def cleanup_provider():
-    """Cleanup all provider resources."""
-    global _providers
-    await ProviderRegistry(_providers).cleanup()
-    _providers = {}
-    logger.debug("Provider cleanup completed")
