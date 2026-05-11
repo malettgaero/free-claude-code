@@ -14,6 +14,7 @@
 - Run checks in this order: `uv run ruff format`, `uv run ruff check`, `uv run ty check`, `uv run pytest`.
 - Do not add `# type: ignore` or `# ty: ignore`; fix the underlying type issue.
 - All 5 checks are enforced in `tests.yml` on push/merge.
+- Personal note: when debugging, also run `uv run pytest -x --tb=short` to get concise output on first failure.
 
 ## IDENTITY & CONTEXT
 
@@ -38,16 +39,4 @@
 
 1. **ANALYZE**: Read relevant files. Do not guess.
 2. **PLAN**: Map out the logic. Identify root cause or required changes. Order changes by dependency.
-3. **EXECUTE**: Fix the cause, not the symptom. Execute incrementally with clear commits.
-4. **VERIFY**: Run ci checks and relevant smoke tests. Confirm the fix via logs or output.
-5. **SPECIFICITY**: Do exactly as much as asked; nothing more, nothing less.
-6. **PROPAGATION**: Changes impact multiple files; propagate updates correctly.
-
-## SUMMARY STANDARDS
-
-- Summaries must be technical and granular.
-- Include: [Files Changed], [Logic Altered], [Verification Method], [Residual Risks] (if no residual risks then say none).
-
-## TOOLS
-
-- Prefer built-in tools (grep, read_file, etc.) over manual workflows. Check tool availability before use.
+3. **EXECUTE**: Fix the cause, not the sympt
