@@ -15,6 +15,7 @@
 - Do not add `# type: ignore` or `# ty: ignore`; fix the underlying type issue.
 - All 5 checks are enforced in `tests.yml` on push/merge.
 - Personal note: when debugging, also run `uv run pytest -x --tb=short` to get concise output on first failure.
+- Personal note: prefer `uv run pytest -v` for verbose output when investigating which specific tests are passing/failing.
 
 ## IDENTITY & CONTEXT
 
@@ -38,5 +39,4 @@
 ## COGNITIVE WORKFLOW
 
 1. **ANALYZE**: Read relevant files. Do not guess.
-2. **PLAN**: Map out the logic. Identify root cause or required changes. Order changes by dependency.
-3. **EXECUTE**: Fix the cause, not the sympt
+2. **PLAN**: Map out the logic. Id
