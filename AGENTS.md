@@ -16,6 +16,7 @@
 - All 5 checks are enforced in `tests.yml` on push/merge.
 - Personal note: when debugging, also run `uv run pytest -x --tb=short` to get concise output on first failure.
 - Personal note: prefer `uv run pytest -v` for verbose output when investigating which specific tests are passing/failing.
+- Personal note: prefer `uv run pytest --tb=long` when a short traceback isn't enough to understand the root cause.
 
 ## IDENTITY & CONTEXT
 
@@ -34,9 +35,4 @@
 - **Platform-agnostic naming**: Use generic names (e.g. `PLATFORM_EDIT`) not platform-specific ones (e.g. `TELEGRAM_EDIT`) in shared code.
 - **No type ignores**: Do not add `# type: ignore` or `# ty: ignore`. Fix the underlying type issue.
 - **Complete migrations**: When moving modules, update imports to the new owner and remove old compatibility shims in the same change unless preserving a published interface is explicitly required.
-- **Maximum Test Coverage**: There should be maximum test coverage for everything, preferably live smoke test coverage to catch bugs early
-
-## COGNITIVE WORKFLOW
-
-1. **ANALYZE**: Read relevant files. Do not guess.
-2. **PLAN**: Map out the logic. Id
+- **Maximum Test Coverage**: There should be maximum test coverage for everything, preferably live smoke test coverage to cat
